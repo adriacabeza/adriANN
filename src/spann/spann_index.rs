@@ -162,18 +162,21 @@ impl<const N: usize, F: AdriannFloat> SpannIndex<N, F> {
             .expect("Query length mismatch");
 
         let nearest_centroids = tree.nearest_n::<kiddo::SquaredEuclidean>(&query_array, k);
-        let threshold = F::from(1.2).unwrap() * (nearest_centroids[0].distance + F::epsilon());
+        // Get the distance to the nearest centroid (c1)
+        let nearest_centroid_dist = nearest_centroids[0].distance;
+        // Set gamma to 0.2 as specified
+        let gamma = F::from(0.2).unwrap();
+        // Calculate the threshold: (1 + gamma) * Dist(q,c1)
+        let threshold = (F::one() + gamma) * nearest_centroid_dist;
 
         let mut all_candidates: Vec<(F, PointData<F>)> = Vec::new();
         for nn in nearest_centroids {
-            if let Ok(Some(points)) = posting_list_store.get_posting_list(nn.item as usize) {
-                for point_data in points {
-                    let point_vector = ArrayView1::from(&point_data.vector);
-                    let dist = SquaredEuclideanDistance.compute(&query.view(), &point_vector);
-                    // query-aware dynamic pruning: we only search in a posting list iff the distance
-                    // between the centroid and the query is almost the same as the distance between the
-                    // query and the closest centroid.
-                    if dist <= threshold {
+            // Only search posting list if its centroid is within the threshold
+            if nn.distance <= threshold {
+                if let Ok(Some(points)) = posting_list_store.get_posting_list(nn.item as usize) {
+                    for point_data in points {
+                        let point_vector = ArrayView1::from(&point_data.vector);
+                        let dist = SquaredEuclideanDistance.compute(&query.view(), &point_vector);
                         all_candidates.push((dist, point_data));
                     }
                 }
